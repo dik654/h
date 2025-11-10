@@ -275,9 +275,131 @@ interface GameEvent {
 
 ## 4. Game Mechanics
 
-### 4.1 Player Actions
+### 4.1 Character Lifecycle System
 
-#### Individual Actions
+#### Life Stages
+캐릭터는 7단계 생애를 거치며, 각 단계마다 다른 능력치와 가능한 행동이 변화합니다.
+
+- **Infant (유아, 0-5세)**: AI 자동 관리, 플레이 불가
+- **Child (아동, 6-12세)**: 제한적 플레이, 교육 시작
+- **Adolescent (청소년, 13-19세)**: 활성 플레이, 진로 탐색
+- **Young Adult (청년, 20-35세)**: 완전한 플레이, 사회 진출, 체력 최대
+- **Middle Aged (중년, 36-55세)**: 영향력 최대, 고위 직책 가능, 정신력 최고
+- **Senior (노년, 56-75세)**: 은퇴 및 멘토링, 경험 전수
+- **Elderly (고령, 76세+)**: 제한적 플레이, 가정 내 역할
+
+#### Time Progression
+- **1 Cycle** = 15분 (실제) = 15일 (게임)
+- **1 Year** = 24 cycles = 6시간 (실제)
+- **1 Generation** = ~50년 = 1,200 cycles = 300시간 ≈ 12.5일
+
+#### Aging Effects
+- 생애 단계 전환 시 능력치 자동 변화
+- 청년기: Physical ↑, Energy ↑
+- 중년기: Mental ↑, Leadership ↑, Physical ↓
+- 노년기: Physical ↓↓, Mental →, Wisdom ↑
+
+상세 설계: `docs/LIFECYCLE_AND_ROLES.md`
+
+### 4.2 Interaction Queuing System
+
+#### Interaction Types
+캐릭터 간 상호작용은 큐에 저장되어 사이클마다 일괄 처리됩니다.
+
+**가정 인터렉션** (Household)
+- Family talk, Family activity, Family decision
+- 같은 가정 구성원 간의 대화, 공동 활동, 의사결정
+
+**조직 인터렉션** (Organization)
+- Meeting, Collaboration, Negotiation, Competition
+- 같은 조직 구성원 간의 회의, 협업, 경쟁
+
+**정치 인터렉션** (Nation)
+- Debate, Vote, Campaign, Policy proposal
+- 같은 국가 내 정치적 활동
+
+**사회 인터렉션** (Public)
+- Trade, Alliance, Conflict, Social event
+- 불특정 다수와의 공개 활동
+
+#### Batch Processing
+- 한 사이클 동안 제출된 모든 인터렉션을 컨텍스트별로 그룹화
+- 같은 가정/조직의 모든 인터렉션을 함께 처리 (맥락 고려)
+- LLM이 인터렉션 간 영향을 분석 (A↔B 대화가 B↔C 대화에 영향)
+
+**예시**:
+```
+Smith 가정 (사이클 N):
+- Alice → Bob: "연구 성공 공유"
+- Bob → Alice: "축하와 격려"
+- Alice → 아들: "진로 조언"
+
+→ 한번에 처리:
+"Alice의 연구 성공으로 가정 분위기가 좋아졌고,
+Bob의 격려에 Alice가 힘을 얻었으며,
+아들은 어머니를 롤모델로 삼아 과학자를 꿈꾸게 되었다."
+```
+
+### 4.3 Social Position System (Limited Slots)
+
+#### Position Hierarchy
+사회적 역할은 **제한된 정원(TO)**이 있으며, 경쟁을 통해 획득합니다.
+
+**정치 역할**
+- President (1명): 최고 권력, 선거로 선출
+- Minister (10명): 대통령 임명
+- Legislator (50명): 선거로 선출
+- Governor/Mayor (N명): 지역별 선거
+
+**조직 역할**
+- CEO (조직당 1명): 능력/선거/임명
+- Director (조직당 5-10명): 능력 기반 또는 CEO 임명
+- Manager (조직당 20-50명): 능력 기반
+- Worker (무제한): 누구나
+
+**학술/군사 역할**
+- General (5명): 능력 + 경력
+- Professor (대학당 50명): 능력 + 경력
+- Researcher (연구소당 100명): 능력 기반
+
+#### Selection Methods
+
+**Election (선거)**
+- 후보 등록 → 선거운동 (2-3 사이클) → 투표 → 개표
+- 유권자는 후보의 공약, 능력, 평판을 종합 고려
+- LLM이 각 유권자의 성향에 따른 투표 결정
+
+**Merit (능력 기반)**
+- 관련 능력치, 경력, 학력, 평판을 점수화
+- 상위 N명 자동 선발
+- 투명한 점수 공개
+
+**Appointment (임명)**
+- 상위자가 후보 중 선택
+- LLM이 임명권자의 성향, 정치적 이득, 후보 능력을 고려
+- 임명 이유 공개
+
+**Competition (경쟁)**
+- 직접 대결 (토론, 시험, 프로젝트 성과)
+- 승자가 역할 획득
+
+#### Fair Competition
+- **투명성**: 모든 선발 과정과 결과에 상세 설명 제공
+- **공정성**: 요구사항 명확, 점수 계산 공개
+- **기회**: 신규 유저 보호 시스템 (초기 50 사이클 보너스)
+- **다양성**: 배경/전공 다양성 보너스
+
+#### Position Constraints
+- 한 캐릭터당 최대 3개 역할 보유 가능
+- 양립 불가능한 역할 쌍 (예: 대통령이면서 판사 불가)
+- 생애 단계 제약 (대통령: 35-75세만 가능)
+- 국적/거주지 제약
+
+상세 설계: `docs/LIFECYCLE_AND_ROLES.md` 섹션 3
+
+### 4.4 Individual Actions
+
+#### Action Categories
 - **Social**: 대화, 협력, 경쟁, 거래
 - **Economic**: 생산, 소비, 투자, 거래
 - **Political**: 투표, 선동, 협상, 반란
@@ -285,7 +407,44 @@ interface GameEvent {
 - **Scientific**: 연구, 발명, 실험, 응용
 - **Military**: 훈련, 전투, 방어, 정찰
 
-### 4.2 Interaction Types
+#### Action Constraints
+- 생애 단계에 따른 행동 제한 (아동은 정치 행동 불가)
+- Energy 소모 (사이클당 회복)
+- Cooldown (중요 행동은 연속 실행 불가)
+- 역할 요구사항 (대통령만 가능한 행동 등)
+
+### 4.5 Simulation Cycle Flow
+
+#### Turn-Based Cycle (15분)
+```
+[Cycle N: Action Submission Phase (10분)]
+- 유저들이 개인 행동 제출
+- 유저들이 인터렉션 제출 (가정, 조직, 정치)
+- 역할 경쟁 참여 (선거 후보 등록, 투표 등)
+
+[Cycle N+1: Processing Phase (5분)]
+1. 개인 행동 처리 (Level 8) - LLM
+2. 인터렉션 배치 처리 (컨텍스트별) - LLM
+3. 가정 집계 (Level 7)
+4. 조직 집계 (Level 6)
+5. 국가 집계 (Level 5)
+6. 행성+ 집계 (Level 4-0)
+7. 역할 경쟁 업데이트 (선거 진행 등)
+8. 생애주기 업데이트 (나이 +15일)
+
+[Result Phase (즉시)]
+- 유저에게 결과 알림
+- 계층별 영향 표시
+- 역할 변동 알림 (당선, 승진 등)
+```
+
+#### Concurrent Systems
+- **Main Simulation**: 매 사이클 진행
+- **Elections**: 여러 사이클에 걸쳐 진행 (등록 → 운동 → 투표)
+- **Aging**: 매 사이클 자동
+- **World Events**: 비정기적 (전쟁, 재난 등)
+
+### 4.6 Interaction Types (Extended)
 
 #### Intra-Level Interactions
 - 같은 계층 내 개체들 간의 직접 상호작용
@@ -295,17 +454,10 @@ interface GameEvent {
 - 하위 계층에서 상위 계층으로의 영향 전파
 - 상위 계층의 정책/이벤트가 하위 계층에 영향
 
-### 4.3 Simulation Cycle
-
-#### Turn-Based Cycle (권장)
-1. **Action Phase** (5-10분): 유저들이 행동 제출
-2. **Processing Phase** (2-5분): 계층별 순차 처리
-3. **Result Phase** (2분): 결과 반영 및 알림
-4. **총 사이클 시간**: 10-15분
-
-#### Real-Time Alternative
-- 지속적인 행동 큐 처리
-- 주기적 배치 집계 (예: 매 1분마다)
+#### Multi-Character Interactions
+- 2명 이상의 캐릭터가 참여하는 복잡한 상호작용
+- 회의, 토론, 협상, 전투 등
+- 모든 참여자의 행동과 반응을 종합 고려
 
 ## 5. LLM Integration & Aggregation Strategy
 
