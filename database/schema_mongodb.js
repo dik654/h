@@ -1,0 +1,522 @@
+// ============================================================================
+// Hierarchical World Simulation - MongoDB Collections & Indexes
+// ============================================================================
+// MongoDB is used for logs, events, and unstructured data
+
+// ============================================================================
+// DATABASE SETUP
+// ============================================================================
+
+use hierarchical_world_simulation;
+
+// ============================================================================
+// COLLECTIONS
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// Action Logs Collection
+// Stores detailed logs of all actions for analytics and replay
+// ----------------------------------------------------------------------------
+db.createCollection("action_logs", {
+  validator: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["userId", "characterId", "cycleNumber", "actionType", "timestamp"],
+      properties: {
+        userId: { bsonType: "string" },
+        characterId: { bsonType: "string" },
+        cycleNumber: { bsonType: "int" },
+        actionType: { enum: ["social", "economic", "political", "cultural", "scientific", "military"] },
+        description: { bsonType: "string" },
+        targetId: { bsonType: ["string", "null"] },
+
+        // Result from LLM
+        result: {
+          bsonType: "object",
+          properties: {
+            narrative: { bsonType: "string" },
+            metrics: { bsonType: "object" },
+            events: { bsonType: "array" },
+            tags: { bsonType: "array" }
+          }
+        },
+
+        // Performance metrics
+        processingTimeMs: { bsonType: "int" },
+        llmTokensUsed: { bsonType: "int" },
+        cacheHit: { bsonType: "bool" },
+
+        timestamp: { bsonType: "date" }
+      }
+    }
+  }
+});
+
+// Indexes for action_logs
+db.action_logs.createIndex({ "userId": 1, "cycleNumber": -1 });
+db.action_logs.createIndex({ "characterId": 1, "timestamp": -1 });
+db.action_logs.createIndex({ "cycleNumber": 1 });
+db.action_logs.createIndex({ "actionType": 1, "cycleNumber": 1 });
+db.action_logs.createIndex({ "timestamp": -1 });
+
+// TTL index - delete logs older than 90 days
+db.action_logs.createIndex({ "timestamp": 1 }, { expireAfterSeconds: 7776000 });
+
+// ----------------------------------------------------------------------------
+// Interaction Logs Collection
+// Stores detailed interaction results
+// ----------------------------------------------------------------------------
+db.createCollection("interaction_logs", {
+  validator: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["initiatorId", "cycleNumber", "contextType", "timestamp"],
+      properties: {
+        initiatorId: { bsonType: "string" },
+        targetIds: { bsonType: "array", items: { bsonType: "string" } },
+        cycleNumber: { bsonType: "int" },
+        contextType: { enum: ["household", "organization", "nation", "public"] },
+        contextId: { bsonType: "string" },
+        interactionType: { bsonType: "string" },
+        description: { bsonType: "string" },
+
+        // Result
+        result: {
+          bsonType: "object",
+          properties: {
+            summary: { bsonType: "string" },
+            participantEffects: { bsonType: "array" },
+            contextEffects: { bsonType: "object" }
+          }
+        },
+
+        processingTimeMs: { bsonType: "int" },
+        llmTokensUsed: { bsonType: "int" },
+
+        timestamp: { bsonType: "date" }
+      }
+    }
+  }
+});
+
+// Indexes for interaction_logs
+db.interaction_logs.createIndex({ "initiatorId": 1, "cycleNumber": -1 });
+db.interaction_logs.createIndex({ "contextType": 1, "contextId": 1, "cycleNumber": -1 });
+db.interaction_logs.createIndex({ "cycleNumber": 1 });
+db.interaction_logs.createIndex({ "timestamp": -1 });
+
+// TTL index
+db.interaction_logs.createIndex({ "timestamp": 1 }, { expireAfterSeconds: 7776000 });
+
+// ----------------------------------------------------------------------------
+// Event Logs Collection
+// Stores all game events with full context
+// ----------------------------------------------------------------------------
+db.createCollection("event_logs", {
+  validator: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["cycleNumber", "eventType", "timestamp"],
+      properties: {
+        cycleNumber: { bsonType: "int" },
+        eventType: { bsonType: "string" },
+        description: { bsonType: "string" },
+        significance: { enum: ["low", "medium", "high", "cosmic"] },
+
+        // Affected entities
+        affectedEntities: { bsonType: "array", items: { bsonType: "string" } },
+
+        // Event data
+        data: { bsonType: "object" },
+
+        // Generated by LLM or rule-based?
+        generatedBy: { enum: ["llm", "rule", "user"] },
+
+        timestamp: { bsonType: "date" }
+      }
+    }
+  }
+});
+
+// Indexes for event_logs
+db.event_logs.createIndex({ "cycleNumber": -1 });
+db.event_logs.createIndex({ "eventType": 1, "cycleNumber": -1 });
+db.event_logs.createIndex({ "significance": 1, "cycleNumber": -1 });
+db.event_logs.createIndex({ "affectedEntities": 1 });
+db.event_logs.createIndex({ "timestamp": -1 });
+
+// ----------------------------------------------------------------------------
+// Simulation Cycle Logs
+// Detailed logs of each cycle execution
+// ----------------------------------------------------------------------------
+db.createCollection("cycle_logs", {
+  validator: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["cycleNumber", "startTime"],
+      properties: {
+        cycleNumber: { bsonType: "int" },
+        startTime: { bsonType: "date" },
+        endTime: { bsonType: "date" },
+
+        status: { enum: ["pending", "processing", "completed", "failed"] },
+
+        // Processing stats
+        stats: {
+          bsonType: "object",
+          properties: {
+            totalActions: { bsonType: "int" },
+            totalInteractions: { bsonType: "int" },
+            activeUsers: { bsonType: "int" },
+
+            // Per-level stats
+            level8: {
+              bsonType: "object",
+              properties: {
+                processed: { bsonType: "int" },
+                llmQueries: { bsonType: "int" },
+                cacheHits: { bsonType: "int" },
+                totalTokens: { bsonType: "int" },
+                avgProcessingTimeMs: { bsonType: "double" }
+              }
+            },
+            level7: { bsonType: "object" },
+            level6: { bsonType: "object" },
+            level5: { bsonType: "object" }
+          }
+        },
+
+        // Errors
+        errors: { bsonType: "array" },
+
+        // World state changes
+        worldStateChanges: { bsonType: "object" }
+      }
+    }
+  }
+});
+
+// Indexes for cycle_logs
+db.cycle_logs.createIndex({ "cycleNumber": -1 }, { unique: true });
+db.cycle_logs.createIndex({ "status": 1, "cycleNumber": -1 });
+db.cycle_logs.createIndex({ "startTime": -1 });
+
+// ----------------------------------------------------------------------------
+// LLM Query Cache
+// Caches LLM responses for similar queries
+// ----------------------------------------------------------------------------
+db.createCollection("llm_cache", {
+  validator: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["cacheKey", "level", "response", "createdAt"],
+      properties: {
+        cacheKey: { bsonType: "string" }, // hash of (actionType + contextHash)
+        level: { bsonType: "int" },
+
+        // Request
+        request: {
+          bsonType: "object",
+          properties: {
+            actionType: { bsonType: "string" },
+            context: { bsonType: "object" }
+          }
+        },
+
+        // Response
+        response: { bsonType: "object" },
+
+        // Stats
+        hitCount: { bsonType: "int" },
+        lastHitAt: { bsonType: "date" },
+
+        createdAt: { bsonType: "date" }
+      }
+    }
+  }
+});
+
+// Indexes for llm_cache
+db.llm_cache.createIndex({ "cacheKey": 1, "level": 1 }, { unique: true });
+db.llm_cache.createIndex({ "hitCount": -1 });
+
+// TTL index - expire cache after 1 hour
+db.llm_cache.createIndex({ "createdAt": 1 }, { expireAfterSeconds: 3600 });
+
+// ----------------------------------------------------------------------------
+// Analytics Events
+// User behavior tracking for analytics
+// ----------------------------------------------------------------------------
+db.createCollection("analytics_events", {
+  validator: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["userId", "eventType", "timestamp"],
+      properties: {
+        userId: { bsonType: "string" },
+        sessionId: { bsonType: "string" },
+
+        eventType: { bsonType: "string" }, // login, action_submit, view_page, etc.
+
+        // Event data
+        data: { bsonType: "object" },
+
+        // Metadata
+        userAgent: { bsonType: "string" },
+        ip: { bsonType: "string" },
+
+        timestamp: { bsonType: "date" }
+      }
+    }
+  }
+});
+
+// Indexes for analytics_events
+db.analytics_events.createIndex({ "userId": 1, "timestamp": -1 });
+db.analytics_events.createIndex({ "eventType": 1, "timestamp": -1 });
+db.analytics_events.createIndex({ "sessionId": 1 });
+db.analytics_events.createIndex({ "timestamp": -1 });
+
+// TTL index - keep analytics for 30 days
+db.analytics_events.createIndex({ "timestamp": 1 }, { expireAfterSeconds: 2592000 });
+
+// ----------------------------------------------------------------------------
+// User Notifications
+// Notifications to be delivered to users
+// ----------------------------------------------------------------------------
+db.createCollection("user_notifications", {
+  validator: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["userId", "type", "createdAt"],
+      properties: {
+        userId: { bsonType: "string" },
+        type: { enum: ["action_result", "world_change", "position_change", "election", "event"] },
+
+        title: { bsonType: "string" },
+        message: { bsonType: "string" },
+
+        // Notification data
+        data: { bsonType: "object" },
+
+        // Status
+        read: { bsonType: "bool" },
+        readAt: { bsonType: "date" },
+
+        createdAt: { bsonType: "date" }
+      }
+    }
+  }
+});
+
+// Indexes for user_notifications
+db.user_notifications.createIndex({ "userId": 1, "read": 1, "createdAt": -1 });
+db.user_notifications.createIndex({ "userId": 1, "type": 1 });
+
+// TTL index - delete read notifications after 7 days
+db.user_notifications.createIndex(
+  { "readAt": 1 },
+  { expireAfterSeconds: 604800, partialFilterExpression: { read: true } }
+);
+
+// ----------------------------------------------------------------------------
+// Chat Messages (optional feature)
+// In-game chat messages
+// ----------------------------------------------------------------------------
+db.createCollection("chat_messages", {
+  validator: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["senderId", "channelId", "message", "timestamp"],
+      properties: {
+        senderId: { bsonType: "string" },
+        senderName: { bsonType: "string" },
+
+        channelId: { bsonType: "string" }, // household_<id>, org_<id>, nation_<id>, global
+        channelType: { enum: ["household", "organization", "nation", "global", "dm"] },
+
+        message: { bsonType: "string", maxLength: 1000 },
+
+        // If DM
+        recipientId: { bsonType: "string" },
+
+        // Moderation
+        flagged: { bsonType: "bool" },
+        deleted: { bsonType: "bool" },
+
+        timestamp: { bsonType: "date" }
+      }
+    }
+  }
+});
+
+// Indexes for chat_messages
+db.chat_messages.createIndex({ "channelId": 1, "timestamp": -1 });
+db.chat_messages.createIndex({ "senderId": 1, "timestamp": -1 });
+db.chat_messages.createIndex({ "timestamp": -1 });
+
+// TTL index - delete messages after 30 days
+db.chat_messages.createIndex({ "timestamp": 1 }, { expireAfterSeconds: 2592000 });
+
+// ============================================================================
+// AGGREGATION PIPELINES (Examples)
+// ============================================================================
+
+// Example: Get user action statistics
+/*
+db.action_logs.aggregate([
+  { $match: { userId: "<user_id>", cycleNumber: { $gte: 1000, $lte: 1100 } } },
+  { $group: {
+      _id: "$actionType",
+      count: { $sum: 1 },
+      avgTokens: { $avg: "$llmTokensUsed" },
+      cacheHitRate: { $avg: { $cond: ["$cacheHit", 1, 0] } }
+    }
+  }
+]);
+*/
+
+// Example: Get most influential players (by action count)
+/*
+db.action_logs.aggregate([
+  { $match: { cycleNumber: { $gte: 1000 } } },
+  { $group: {
+      _id: "$userId",
+      actionCount: { $sum: 1 },
+      uniqueTypes: { $addToSet: "$actionType" }
+    }
+  },
+  { $sort: { actionCount: -1 } },
+  { $limit: 10 }
+]);
+*/
+
+// Example: Cycle performance analysis
+/*
+db.cycle_logs.aggregate([
+  { $match: { status: "completed" } },
+  { $project: {
+      cycleNumber: 1,
+      duration: { $subtract: ["$endTime", "$startTime"] },
+      totalActions: "$stats.totalActions",
+      totalLLMQueries: {
+        $add: [
+          "$stats.level8.llmQueries",
+          "$stats.level7.llmQueries",
+          "$stats.level6.llmQueries"
+        ]
+      },
+      totalTokens: {
+        $add: [
+          "$stats.level8.totalTokens",
+          "$stats.level7.totalTokens",
+          "$stats.level6.totalTokens"
+        ]
+      }
+    }
+  },
+  { $sort: { cycleNumber: -1 } },
+  { $limit: 100 }
+]);
+*/
+
+// ============================================================================
+// UTILITIES
+// ============================================================================
+
+// Function to clean up old cache entries manually
+function cleanOldCache(olderThanHours = 1) {
+  const cutoff = new Date(Date.now() - olderThanHours * 60 * 60 * 1000);
+  return db.llm_cache.deleteMany({ createdAt: { $lt: cutoff } });
+}
+
+// Function to get cache hit rate
+function getCacheHitRate(level, lastNCycles = 100) {
+  return db.action_logs.aggregate([
+    { $match: {
+        cycleNumber: { $gte: db.cycle_logs.findOne({}, { sort: { cycleNumber: -1 } }).cycleNumber - lastNCycles }
+      }
+    },
+    { $group: {
+        _id: null,
+        totalQueries: { $sum: 1 },
+        cacheHits: { $sum: { $cond: ["$cacheHit", 1, 0] } }
+      }
+    },
+    { $project: {
+        cacheHitRate: { $divide: ["$cacheHits", "$totalQueries"] }
+      }
+    }
+  ]);
+}
+
+// Function to get top active users
+function getTopActiveUsers(lastNCycles = 100, limit = 10) {
+  const minCycle = db.cycle_logs.findOne({}, { sort: { cycleNumber: -1 } }).cycleNumber - lastNCycles;
+
+  return db.action_logs.aggregate([
+    { $match: { cycleNumber: { $gte: minCycle } } },
+    { $group: {
+        _id: "$userId",
+        actionCount: { $sum: 1 },
+        actionTypes: { $addToSet: "$actionType" }
+      }
+    },
+    { $sort: { actionCount: -1 } },
+    { $limit: limit }
+  ]);
+}
+
+// ============================================================================
+// SHARDING CONFIGURATION (for production scale)
+// ============================================================================
+
+/*
+// Enable sharding on database
+sh.enableSharding("hierarchical_world_simulation");
+
+// Shard action_logs by userId (hash sharding for even distribution)
+sh.shardCollection("hierarchical_world_simulation.action_logs", { userId: "hashed" });
+
+// Shard interaction_logs by contextId
+sh.shardCollection("hierarchical_world_simulation.interaction_logs", { contextId: "hashed" });
+
+// Shard event_logs by cycleNumber (range sharding)
+sh.shardCollection("hierarchical_world_simulation.event_logs", { cycleNumber: 1 });
+
+// Shard analytics_events by userId
+sh.shardCollection("hierarchical_world_simulation.analytics_events", { userId: "hashed" });
+
+// Shard user_notifications by userId
+sh.shardCollection("hierarchical_world_simulation.user_notifications", { userId: "hashed" });
+*/
+
+// ============================================================================
+// MONITORING QUERIES
+// ============================================================================
+
+// Current database stats
+function getDbStats() {
+  return db.stats();
+}
+
+// Collection sizes
+function getCollectionSizes() {
+  return db.getCollectionNames().map(name => ({
+    collection: name,
+    stats: db[name].stats()
+  }));
+}
+
+// Recent errors from cycle logs
+function getRecentErrors(limit = 10) {
+  return db.cycle_logs.find(
+    { "errors.0": { $exists: true } },
+    { cycleNumber: 1, errors: 1 }
+  ).sort({ cycleNumber: -1 }).limit(limit).toArray();
+}
+
+print("MongoDB schema initialized successfully!");
+print("Collections created: action_logs, interaction_logs, event_logs, cycle_logs, llm_cache, analytics_events, user_notifications, chat_messages");
+print("Indexes created for performance");
+print("TTL indexes configured for automatic cleanup");
