@@ -250,12 +250,20 @@ interface GameEvent {
 ```
 [User Actions]
     ↓
-[Action Queue] → [Validation]
+[Action Queue]
     ↓
-[Level 8: Process Individuals]
+[Layer 1: Input Validation] ← 생애 단계, 특성, 자원, 쿨다운 검증
+    ↓ (Invalid actions rejected)
+[Layer 2: Context Enrichment] ← Character memory, 최근 행동, 진행 중 스토리 로드
+    ↓
+[Level 8: Process Individuals] ← LLM with enriched context
     ↓ (LLM Query Batch 1)
+[Layer 3: Output Validation] ← Metric bounds, 서사 일관성, 시간 스케일 검증
+    ↓ (Failed outputs regenerated up to 3x)
 [Level 7: Aggregate to Households]
     ↓ (LLM Query Batch 2)
+[Layer 4: Cross-Level Consistency] ← 하위→상위 일관성 검증
+    ↓
 [Level 6: Aggregate to Organizations]
     ↓ (LLM Query Batch 3)
 [Level 5: Aggregate to Nations]
@@ -270,8 +278,20 @@ interface GameEvent {
     ↓ (LLM Query Batch 8)
 [Level 0: Update Universe State]
     ↓
+[Causality Tracking] ← 변화 원인 기록
+    ↓
+[Personality Drift Detection] ← 캐릭터 일관성 모니터링
+    ↓
+[Story Arc Update] ← 진행 중인 스토리 업데이트
+    ↓
 [Store Results] → [Notify Users]
 ```
+
+**Validation Layers**:
+- **Layer 1 (Input)**: ~5ms/action, 거부율 5-10%
+- **Layer 2 (Context)**: ~20ms/action, DB 조회 및 요약 생성
+- **Layer 3 (Output)**: ~10ms/result, 재생성율 10-15%
+- **Layer 4 (Cross-Level)**: ~50ms/entity, 불일치율 1-2%
 
 ## 4. Game Mechanics
 
@@ -793,22 +813,175 @@ Monthly (2,880 cycles): $38,707
 Further optimization (self-hosted LLM): $10,000-15,000/month
 ```
 
-### 5.5 Implementation Priority
+### 5.5 Validation & Consistency System
+
+**핵심 원칙**: 개연성과 논리적 일관성을 유지하여 몰입감 있는 시뮬레이션 제공
+
+#### 4단계 검증 시스템
+
+**1. Input Validation (LLM 호출 전)**
+- 생애 단계별 행동 제약 검증 (아동은 정치 행동 불가 등)
+- 특성-행동 충돌 검사 (Pacifist가 전쟁 시작 불가)
+- 자원/에너지 요구사항 확인
+- 쿨다운 체크 (같은 행동 연속 실행 제한)
+
+**2. Context Enrichment (LLM 입력 강화)**
+```typescript
+interface EnrichedContext {
+  recent_actions: Action[];           // 최근 10개 행동
+  character_summary: string;          // "Alice는 조용한 과학자..."
+  trait_history: TraitActivation[];   // 특성이 과거에 어떻게 작용했는지
+  metric_bounds: MetricBounds;        // 허용된 변화량 범위
+  prohibited_outcomes: string[];      // 불가능한 결과들
+  ongoing_narrative: string;          // 진행 중인 스토리 라인
+}
+```
+
+**3. Output Validation (LLM 결과 검증)**
+- Metric bounds 위반 체크 (-50 ~ +50 범위 등)
+- 서사 일관성 검증 (성격과 맞지 않는 행동 감지)
+- 시간 스케일 검증 (15일 안에 불가능한 일 감지)
+- Event 개수 제한 (사이클당 최대 3개 이벤트)
+- 재시도 메커니즘 (최대 3회, 오류 피드백 포함)
+
+**4. Cross-Level Consistency (계층 간 일관성)**
+- 하위 레벨 변화가 상위 레벨에 논리적으로 반영되는지 확인
+- 상위 레벨 상태(예: 가뭄)가 하위 레벨을 제약하는지 확인
+- 예: 행성 수준 가뭄 발생 시 → 모든 국가의 농업 생산 감소 필수
+
+#### Character Memory System
+
+모든 캐릭터는 지속적 기억을 가지며, 이를 통해 일관성을 유지합니다:
+
+```typescript
+interface CharacterMemory {
+  personality_summary: string;        // "Alice는 내성적이고 정직한 과학자"
+  behavioral_patterns: Pattern[];     // 행동 패턴 (갈등 회피, 연구 선호 등)
+  never_would: string[];              // "친구 배신", "거짓말"
+  always_would: string[];             // "평화적 해결 추구", "진실 말하기"
+  defining_moments: Event[];          // 인생의 결정적 순간들
+  ongoing_story_arcs: StoryArc[];     // 진행 중인 스토리
+}
+```
+
+#### Metric Bounds (동적 변화량 제한)
+
+각 행동의 메트릭 변화는 동적으로 계산된 범위 내로 제한됩니다:
+
+```typescript
+// 기본 범위
+scientific_action: { science: [-10, +15], energy: [-15, -5] }
+
+// 수정 요소:
++ 캐릭터 능력치 (Intelligence 80 → +50% 보너스)
++ 생애 단계 (중년 → +20% 정신 활동)
++ 세계 상태 (기술 중시 시대 → +30%)
++ 특성 (Tech Savvy → +15)
+
+// 최종 범위
+= { science: [-10, +35], energy: [-18, -6] }
+```
+
+#### Causality Tracking (인과관계 추적)
+
+모든 중요한 변화는 명확한 원인이 기록됩니다:
+
+```
+행복도 -25 감소 원인:
+━━━━━━━━━━━━━━━━━━━━━━━━
+🔴 45% - 연구 프로젝트 실패 (Cycle 1234)
+🔴 30% - 글로벌 경기 침체 (Cycle 1232)
+🔴 15% - 친구와의 갈등 (Cycle 1235)
+🟡 10% - Pessimistic 특성 불리 (현 문화 트렌드)
+━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+#### Personality Drift Detection
+
+캐릭터 성격이 비논리적으로 변하는 것을 감지하고 방지:
+
+```typescript
+// 최근 20 사이클과 과거 200 사이클 행동 패턴 비교
+const drift = calculatePatternDivergence(recent, historical);
+
+if (drift.score > 0.7) {
+  // 급격한 성격 변화 감지
+  const justified = checkJustification(character, drift);
+
+  if (!justified) {
+    // 정당화되지 않으면 경고 또는 되돌림
+    return { action: 'REVERT_OR_JUSTIFY' };
+  } else {
+    // 트라우마, 생애 전환 등으로 정당화되면 수용
+    updatePersonalitySummary(character);
+  }
+}
+```
+
+#### World State Constraints
+
+세계 상태 변화도 제약을 받습니다:
+
+```typescript
+const TRANSITION_RULES = {
+  max_temperature_change: 2,       // °C per cycle (15 days)
+  max_resource_change: 10,         // percentage points
+  min_climate_phase_duration: 24,  // cycles (~1 year)
+  major_change_requires_event: true,
+};
+
+// 예: 온도가 5°C 급변 → 대규모 기후 이벤트 필요
+if (tempDelta > 2 && !hasCatastrophicEvent) {
+  reject('Unrealistic climate change');
+}
+```
+
+#### Story Arc Continuity
+
+진행 중인 스토리 라인을 추적하고 유지:
+
+```typescript
+interface StoryArc {
+  arc_type: 'personal_growth' | 'conflict' | 'romance' | 'ambition';
+  status: 'building' | 'climax' | 'resolution';
+  current_narrative_thread: string;
+  unresolved_elements: string[];
+  participants: string[];
+  estimated_end_cycle: number;
+}
+
+// LLM 프롬프트에 주입
+"진행 중인 스토리: Alice는 3년간 양자 컴퓨터 연구 중
+미해결 요소: 펀딩 부족 문제, 경쟁사의 압박
+→ 현재 행동을 이 맥락에서 처리하세요"
+```
+
+상세 설계: `docs/CONSISTENCY_AND_VALIDATION.md`
+
+### 5.6 Implementation Priority
 
 1. **Phase 1 (MVP)**:
    - Level 8: Full LLM (text + metrics)
    - Level 7-5: Rule-based 집계만
    - 캐싱 없음
+   - 기본 입력 검증만
 
-2. **Phase 2 (Optimization)**:
+2. **Phase 2 (Optimization + Consistency)**:
    - Level 7: LLM 추가 (배치)
    - 기본 캐싱 구현
    - Level 6: 선택적 LLM
+   - Character Memory System 추가
+   - Output Validation 강화
+   - Metric Bounds 동적 계산
 
-3. **Phase 3 (Full Scale)**:
+3. **Phase 3 (Full Scale + Advanced Consistency)**:
    - 고급 캐싱 (70%+ 적중률)
    - Level 4-0 추가
    - Self-hosted LLM 검토
+   - Causality Tracking
+   - Story Arc System
+   - Personality Drift Detection
+   - Cross-Level Consistency Validation
 
 ## 6. Storage & State Management
 
